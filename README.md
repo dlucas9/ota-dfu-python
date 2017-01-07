@@ -2,19 +2,19 @@ Python nRF52 DFU Server
 ============================
 
 A python script for bluez gatttool using pexpect to achive Device Firmware Updates (DFU) to the nRF52.  
-The host system is assumed to be some flavor of Linux, and was developed with the Raspberry-Pi as the primary hosting system.
+The host system is assumed to be some flavor of Linux.
 
 **NOTE:**   
 This is probably not a beginner's project.  
 Peripheral firmware updating is a complex process, requiring several critical development support steps, not covered here, before the *dfu.py* utility can be used.
 
-It is assumed that your peripheral firmware has been build to Nordic's SDK8.x + SoftDevice 8.x  
+It is assumed that your peripheral firmware has been build to Nordic's SDK11.x + SoftDevice 11.x  
 The target peripheral firmware should also include some variation of Nordic's DFU support.
 
 How you get the target periheral to enter DFU-mode (e.g. advertizing *DfuTarg*) is not handled here.    
 It is assumed you can trigger your peripheral to enter the bootloader; either by a hardware switch or application-trigger.
 
-The *dfu.py* utility comes into play only after the peripheral is executing the bootloader.
+The *dfu.py* utility comes into play only if the peripheral has the DFU Service working.
 
 System:
 * Ubuntu 14.04
