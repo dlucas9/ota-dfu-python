@@ -122,6 +122,4 @@ https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk52
 
 
 **TODO**  
-- Go in DFU Mode buttonless
-https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk52.v0.9.2%2Fbledfu_application.html&cp=6_0_2_4_2_2
 - Send encrypted applications
