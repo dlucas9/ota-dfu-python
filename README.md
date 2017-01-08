@@ -129,7 +129,7 @@ This is benign: the update should have been successful and the peripheral should
 
 5)Send 'INIT DFU' + Complete Command (0x0201)
 
-6)Send packet receipt notification interval (currently 10)
+6)Send packet receipt notification interval (currently 10) (0x080000)
 
 7)Send 'RECEIVE FIRMWARE IMAGE' command to set DFU in firmware receive state. (0x0300)
 
