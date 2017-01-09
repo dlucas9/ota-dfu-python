@@ -140,8 +140,11 @@ This is benign: the update should have been successful and the peripheral should
 10)Send Activate and Reset Command (0x0500)
 
 **LINKS**  
-https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk52.v0.9.2%2Fbledfu_application.html&cp=6_0_2_4_2_2
+https://infocenter.nordicsemi.com/topic/com.nordic.infocenter.sdk5.v11.0.0/bledfu_application.html
 
+https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.v11.0.0%2Fbledfu_transport_bleservice.html
+
+https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.v11.0.0%2Fbledfu_architecture_transfer.html
 
 **TODO**  
 - Send encrypted applications
