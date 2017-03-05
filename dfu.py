@@ -15,6 +15,8 @@ from intelhex import IntelHex
 from array    import array
 from unpacker import Unpacker
 
+VERBOSE=1
+
 # DFU Opcodes
 class Commands:
     START_DFU                    = 1
@@ -64,7 +66,6 @@ class UUID:
     DFU_Packet			= "00001532-1212-efde-1523-785feabcd123"
     DFU_Version			= "00001534-1212-efde-1523-785feabcd123"
 
-
 """
 ------------------------------------------------------------------------------
  Convert a number into an array of 4 bytes (LSB).
@@ -104,6 +105,15 @@ def convert_array_to_hex_string(arr):
 
     return hex_str
 
+def debug_msg(message):
+	"""
+	Print messages in verbose mode
+	"""
+	if VERBOSE:
+		print "[DEBUG]" + message
+
+
+	
 """
 ------------------------------------------------------------------------------
  Define the BleDfuServer class
@@ -130,21 +140,32 @@ class BleDfuServer(object):
     --------------------------------------------------------------------------
     """
     def __init__(self, target_mac, hexfile_path, datfile_path):
-        
-        self.target_mac = target_mac
-        
-        self.hexfile_path = hexfile_path
-        self.datfile_path = datfile_path
+		debug_msg("Init")
+		self.target_mac = target_mac
 
-        self.ble_conn = pexpect.spawn("gatttool -b '%s' -t random --interactive" % target_mac)
+		self.hexfile_path = hexfile_path
+		self.datfile_path = datfile_path
 
-        """
-        msg_ret = self.ble_conn.before
-        if msg_ret!="":
-        	print msg_ret
-        """
-        # remove next line comment for pexpect detail tracing.
-        #self.ble_conn.logfile = sys.stdout
+		self.bluez_version=pexpect.run ('bluetoothd -v').rstrip()
+		debug_msg("BlueZ version: " + self.bluez_version)
+
+		#Send gatttoll command
+		self.ble_conn = pexpect.spawn("gatttool -b '%s' -t random --interactive" % target_mac)
+
+		# remove next line comment for pexpect detail tracing.
+		#TODO reuse this
+		#self.ble_conn.logfile = sys.stdout
+
+    
+    def ble_msg_verbose(self):
+    	"""
+		Print messages if VERBOSE mode is enabled
+    	"""
+        if VERBOSE:    
+            msg_ret = self.ble_conn.before
+            if msg_ret!="":
+                print "[DEBUG]" + msg_ret
+
 
     """
     --------------------------------------------------------------------------
@@ -152,29 +173,46 @@ class BleDfuServer(object):
     --------------------------------------------------------------------------
     """
     def scan_and_connect(self):
-        print "scan_and_connect"
+		debug_msg("scan_and_connect")
 
-        try:
-            self.ble_conn.expect('\[LE\]>', timeout=10)
-        except pexpect.TIMEOUT, e:
-            print "Connect timeout"
-            return False
+		try:
+			self.ble_conn.expect('\[LE\]>', timeout=10)
+		except pexpect.TIMEOUT, e:
+			print "[scan_and_connect] Error: Connection timeout 1"
+			return False
 
-        self.ble_conn.sendline('connect')
+		self.ble_msg_verbose()
 
-        try:
-            res = self.ble_conn.expect('\[CON\].*>', timeout=10)
-        except pexpect.TIMEOUT, e:
-            print "Connect timeout"
-            return False
+		debug_msg("connect")
+		self.ble_conn.sendline('connect')
 
-        """
-        msg_ret = self.ble_conn.before
-        if msg_ret!="":
-        print msg_ret
-        """
-        return True
-        
+		self.ble_msg_verbose()
+
+		if(float(self.bluez_version)>=5.4):
+			debug_msg("BlueZ 5.4")
+			try:
+				
+				#For BlueZ >5.4
+				self.ble_conn.expect('\[CON\].*>', timeout=10)                
+			except pexpect.TIMEOUT, e:
+				try:
+					self.ble_conn.expect('\[LE\]>', timeout=10)
+				except pexpect.TIMEOUT, e:
+					print "[scan_and_connect] Error: Connection timeout 2. \nMake sure that bluez version 5.40 and later is installed"
+				self.ble_msg_verbose()
+				return False
+		else:
+			debug_msg("BlueZ 5.3")
+			#For BlueZ >5.3
+			try:
+				res = self.ble_conn.expect('Connection successful', timeout=10)
+			except pexpect.TIMEOUT, e:
+				print "[scan_and_connect] Error: Connection timeout 3"
+				return False
+
+				
+		debug_msg("END scan_and_connect")
+		return True        
     """
     --------------------------------------------------------------------------
      Wait for notification to arrive.
@@ -210,17 +248,16 @@ class BleDfuServer(object):
                     print 'Connection lost! '
                     raise Exception('Connection Lost')
                 return None
-
-	    """
-	    msg_ret = self.ble_conn.before
-	    if msg_ret!="":
-	    	print msg_ret
-
-	    """
+			
+			#Print messages if VERBOSE mode is enabled
+            self.ble_msg_verbose()
+	    
             if index == 0:
                 after = self.ble_conn.after
+		print "After:" + str(after)
                 hxstr = after.split()[3:]
                 handle = long(float.fromhex(hxstr[0]))
+		print "HAndle:" + str(handle)
                 return hxstr[2:]
 
             else:
@@ -241,8 +278,9 @@ class BleDfuServer(object):
         dfu_oper = notify[0]
         oper_str = DFU_oper_to_str[dfu_oper]
 
-        if oper_str == "RESPONSE":
+	print "_dfu_parse_notify:" + str(notify) + " dfu_oper:" + str(dfu_oper)
 
+        if oper_str == "RESPONSE":
             dfu_process = notify[1]
             dfu_status  = notify[2]
 
@@ -306,11 +344,8 @@ class BleDfuServer(object):
         except pexpect.TIMEOUT, e:
             print "State timeout"
 
-        """
-        msg_ret = self.ble_conn.before
-        if msg_ret!="":
-            print msg_ret
-        """
+        #Print messages if VERBOSE mode is enabled
+		#ble_msg_verbose()
 
     #--------------------------------------------------------------------------
     # Send 3 bytes: PKT_RCPT_NOTIF_REQ with interval of 10 (0x0a)
@@ -328,11 +363,8 @@ class BleDfuServer(object):
         except pexpect.TIMEOUT, e:
             print "Send PKT_RCPT_NOTIF_REQ timeout"
 
-        """
-        msg_ret = self.ble_conn.before
-        if msg_ret!="":
-            print msg_ret
-        """
+        #Print messages if VERBOSE mode is enabled
+		#ble_msg_verbose()
 
     #--------------------------------------------------------------------------
     # Send an array of bytes: request mode
@@ -348,11 +380,10 @@ class BleDfuServer(object):
         except pexpect.TIMEOUT, e:
             print "Data timeout"
 
-	"""
-	msg_ret = self.ble_conn.before
-	if msg_ret!="":
-		print msg_ret
-	"""
+	
+	#Print messages if VERBOSE mode is enabled
+	#ble_msg_verbose()
+	
 
     #--------------------------------------------------------------------------
     # Send an array of bytes: command mode
@@ -381,17 +412,13 @@ class BleDfuServer(object):
         except pexpect.TIMEOUT, e:
             print "CCCD timeout"
         
-        """
-    	msg_ret = self.ble_conn.before
-    	if msg_ret!="":
-    		print msg_ret
-    	"""
+		#Print messages if VERBOSE mode is enabled
+		#ble_msg_verbose()
 
     #--------------------------------------------------------------------------
     # Send the Init info (*.dat file contents) to peripheral device.
     #--------------------------------------------------------------------------
     def _dfu_send_init(self):
-
         print "dfu_send_info"
 
         # Open the DAT file and create array of its contents
@@ -438,16 +465,8 @@ class BleDfuServer(object):
         
         print "_dfu_check_mode"
         #look for DFU switch characteristic
-
-        #00001531-1212-efde-1523-785feabcd123 DFU Control Point handle:
-        #00001534-1212-efde-1523-785feabcd123 DFU Version
-        #00002902-0000-1000-8000-00805f9b34fb
-        
-        resetHandle = getHandle(self.ble_conn, '00001531-1212-efde-1523-785feabcd123')  
-
-        #resetHandle = getHandle(self.ble_conn, 'f5f90005-59f9-11e4-aa15-123b93f75cba')
-        #resetHandle = getHandle(self.ble_conn,"00002902-0000-1000-8000-00805f9b34fb")
-
+		
+        resetHandle = getHandle(self.ble_conn, UUID.DFU_Control_Point)  
         
         print "resetHandle " + str(resetHandle)
         
@@ -455,7 +474,7 @@ class BleDfuServer(object):
         
         if not resetHandle:
             # maybe it already is IN DFU mode
-            self.ctrlpt_handle = getHandle(self.ble_conn, '00001531-1212-efde-1523-785feabcd123')
+            self.ctrlpt_handle = getHandle(self.ble_conn, UUID.DFU_Control_Point)
             if not self.ctrlpt_handle:
                 print "Not in DFU, nor has the toggle characteristic, aborting.."
                 return False
@@ -519,27 +538,19 @@ class BleDfuServer(object):
             self.data_handle = data_handle
     
     def switch_in_dfu_mode(self):
-		#TODO: First check the DFU Mode.
 		"""
-		# scan for characteristics:
-		status = self._dfu_check_mode()
-
-		print "status " + str(status)
-		if not status:
-			return False
-		 
+		Enable CCD to switch in DFU mode
+		"""
 		self._dfu_get_handles()
-		"""
-		#self._dfu_get_handles()
 
 		#Enable notifications 
-		print 'char-write-cmd 0x%02s %02x' % (self.ctrlpt_cccd_handle, 1)  #char-write-req 0x0014 0100
+		debug_msg(str('char-write-cmd 0x%02s %02x' % (self.ctrlpt_cccd_handle, 1)))  #char-write-req 0x0014 0100
 		self.ble_conn.sendline('char-write-req 0x%02s %02x' % (self.ctrlpt_cccd_handle, 1))
 
 		#self._dfu_enable_cccd(False) #Try this
 
 		#Reset the board in DFU mode. After reset the board will be disconnected
-		print 'char-write-cmd 0x%02x 0104' % (self.reset_handle) #char-write-req 0x0013 0104
+		debug_msg(str('char-write-cmd 0x%02x 0104' % (self.reset_handle))) #char-write-req 0x0013 0104
 		#self.ble_conn.sendline('char-write-req 0x%02s %02x' % ("14", 1))
 		self.ble_conn.sendline('char-write-req 0x%02x 0104' % (self.reset_handle))  #Reset
 
@@ -548,6 +559,7 @@ class BleDfuServer(object):
 		#print  "Send 'START DFU' + Application Command"
 		#self._dfu_state_set(0x0104)
 
+		debug_msg("END switch_in_dfu_mode")
 		#Reconnect the board.
 		ret = self.scan_and_connect()
 		print "Connected " + str(ret)
@@ -559,7 +571,7 @@ class BleDfuServer(object):
     --------------------------------------------------------------------------
     """
     def dfu_send_image(self):
-		print "dfu_send_image"
+		debug_msg("dfu_send_image")
 
 		if not self._check_DFU_mode():
 			self.switch_in_dfu_mode()
@@ -637,7 +649,7 @@ class BleDfuServer(object):
 		
 		"""
 		--------------------------------------------------------------------------
-			Return True is already in DFU mode
+			Return True if is already in DFU mode
 		--------------------------------------------------------------------------
 		"""
     def _check_DFU_mode(self):
@@ -650,17 +662,21 @@ class BleDfuServer(object):
 			res = self.ble_conn.expect('handle:', timeout=10)
 			res = self.ble_conn.expect('handle:', timeout=10)
 		except pexpect.TIMEOUT, e:
-			print "State timeout"
+			#print "[ERROR]_check_DFU_mode: State timeout"
+			pass
 		except:
 			pass
 		
 		msg_ret = self.ble_conn.before
+		debug_msg(msg_ret)
 		
 		if msg_ret.find("value: 08 00")!=-1:		
 			res=True
 			print "Board already in DFU mode"
-		else:
+		elif msg_ret.find("value: 01 00")!=-1:		
 			print "Board needs to switch in DFU mode"
+		else:
+			print "[ERROR]: Invalid state"
 
 		return res
 		
@@ -712,7 +728,6 @@ def main():
     """
 
     print "DFU Server start"
-
     try:
         parser = optparse.OptionParser(usage='%prog -f <hex_file> -a <dfu_target_address>\n\nExample:\n\tdfu.py -f application.hex -d application.dat -a cd:e3:4a:47:1c:e4',
                                        version='0.5')
@@ -799,14 +814,14 @@ def main():
             hexfile = options.hexfile
             datfile = options.datfile
 
-
         ''' Start of Device Firmware Update processing '''
-
         ble_dfu = BleDfuServer(options.address.upper(), hexfile, datfile)
 
         # Initialize inputs
         ble_dfu.input_setup()
 
+		#Debug
+        #ble_dfu.__init__(ble_dfu.target_mac, ble_dfu.hexfile_path, ble_dfu.datfile_path)
         # Connect to peer device.
         if ble_dfu.scan_and_connect():
             # Transmit the hex image to peer device.

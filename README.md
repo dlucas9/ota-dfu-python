@@ -19,7 +19,7 @@ The *dfu.py* utility comes into play only if the peripheral has the DFU Service 
 System:
 * Ubuntu 14.04
 * Asus X550LD (With integrated Bluetooth 4.0 interface)
-* bluez - 5.4 or later
+* bluez - 5.4 or later (type "bluetoothd -v" to check your bluez version)
 
 This project assumes you are developing on a Linux/Unix or OSX system and deploying to a Linux system. 
 
@@ -117,6 +117,10 @@ Example of *dfu.py* Output
 The final "State timeout" is due to the target peripheral rebooting, as expected, and the disconnect not getting back soon enough.  
 This is benign: the update should have been successful and the peripheral should have restarted and run the new firmware. 
 
+<b>For Windows or Mac here other repos:</b><br>
+Windows Application: https://github.com/astronomer80/nrf52_bledfu_win/tree/consoleapp<br>
+Mac application: https://github.com/astronomer80/nrf52_bledfu_mac/tree/ConsoleAppTest<br>
+
 ***DFU Procedure performed by this script****
 
 1)Send 'START DFU' opcode + Application Command (0x0104)
@@ -147,4 +151,6 @@ https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.
 https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.v11.0.0%2Fbledfu_architecture_transfer.html
 
 **TODO**  
+- Add scan command
+- Include nrfutil command
 - Send encrypted applications
