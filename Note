@@ -1,0 +1,14 @@
+sudo hcitool lescan
+
+sudo ./dfu.py -f /home/angelo/Dropbox/test_new/Primo/zip/app_blink_dfu_500/s132_pca10040.bin -d /home/angelo/Dropbox/test_new/Primo/zip/app_blink_dfu_500/s132_pca10040.dat -a E8:EC:B8:30:AB:B5
+
+
+sudo gatttool -b E8:EC:B8:30:AB:B4 -t random --interactive
+
+self.ble_conn.sendline('bluetoothd -v')
+		self.ble_msg_verbose()
+
+Switch in DFU mode
+char-write-req 0x0014 0100
+char-write-req 0x0013 0104
+

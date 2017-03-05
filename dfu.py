@@ -131,8 +131,12 @@ class BleDfuServer(object):
     reset_handle      = 0x13
     ctrlpt_cccd_handle_buttonless  = 0x14
 
-    pkt_receipt_interval = 10
-    pkt_payload_size     = 20
+    #TODO Check this parameter to speed up the rprocedure
+    pkt_receipt_interval = 10 #DEFAULT=10
+    pkt_payload_size     = 20 #DEFAULT=20
+
+    value_written_success_msg='Characteristic value was written successfully'
+    value_written_success_msg_alt='.* Characteristic value was written successfully'
 
     """
     --------------------------------------------------------------------------
@@ -175,18 +179,8 @@ class BleDfuServer(object):
     def scan_and_connect(self):
 		debug_msg("scan_and_connect")
 
-		try:
-			self.ble_conn.expect('\[LE\]>', timeout=10)
-		except pexpect.TIMEOUT, e:
-			print "[scan_and_connect] Error: Connection timeout 1"
-			return False
-
-		self.ble_msg_verbose()
-
 		debug_msg("connect")
 		self.ble_conn.sendline('connect')
-
-		self.ble_msg_verbose()
 
 		if(float(self.bluez_version)>=5.4):
 			debug_msg("BlueZ 5.4")
@@ -254,10 +248,10 @@ class BleDfuServer(object):
 	    
             if index == 0:
                 after = self.ble_conn.after
-		print "After:" + str(after)
+		debug_msg("After:" + str(after))
                 hxstr = after.split()[3:]
                 handle = long(float.fromhex(hxstr[0]))
-		print "HAndle:" + str(handle)
+		debug_msg("HAndle:" + str(handle))
                 return hxstr[2:]
 
             else:
@@ -278,7 +272,7 @@ class BleDfuServer(object):
         dfu_oper = notify[0]
         oper_str = DFU_oper_to_str[dfu_oper]
 
-	print "_dfu_parse_notify:" + str(notify) + " dfu_oper:" + str(dfu_oper)
+        debug_msg("_dfu_parse_notify:" + str(notify) + " dfu_oper:" + str(dfu_oper))
 
         if oper_str == "RESPONSE":
             dfu_process = notify[1]
@@ -287,12 +281,15 @@ class BleDfuServer(object):
             process_str = DFU_proc_to_str[dfu_process]
             status_str  = DFU_status_to_str[dfu_status]
 
-            print "oper: {0}, proc: {1}, status: {2}".format(oper_str, process_str, status_str)
+            debug_msg(str("oper: {0}, proc: {1}, status: {2}".format(oper_str, process_str, status_str)))
 
             if oper_str == "RESPONSE" and status_str == "SUCCESS":
                 return "OK"
             else:
+                print "ERROR: [_dfu_parse_notify]"
+                sys.exit(1)
                 return "FAIL"
+
 
         if oper_str == "PKT_RCPT_NOTIF":
 
@@ -318,19 +315,16 @@ class BleDfuServer(object):
     --------------------------------------------------------------------------
     """
     def _dfu_state_set(self, opcode):
-        self.ble_conn.sendline('char-write-req 0x%04x %04x' % (self.ctrlpt_handle, opcode))
+		debug_msg(str('char-write-req 0x%04x %04x' % (self.ctrlpt_handle, opcode)))
+		self.ble_conn.sendline('char-write-req 0x%04x %04x' % (self.ctrlpt_handle, opcode))
 
-        # Verify that command was successfully written
-        try:
-            res = self.ble_conn.expect('.* Characteristic value was written successfully', timeout=10)
-        except pexpect.TIMEOUT, e:
-            print "State timeout"
+		# Verify that command was successfully written
+		try:
+			res = self.ble_conn.expect(self.value_written_success_msg, timeout=10)
+		except pexpect.TIMEOUT, e:
+			print "ERROR: _dfu_state_set State timeout"
 
-        """
-        msg_ret = self.ble_conn.before
-        if msg_ret!="":
-            print msg_ret
-        """
+		self.ble_msg_verbose()
 
     #--------------------------------------------------------------------------
     # Send one byte: command
@@ -340,9 +334,10 @@ class BleDfuServer(object):
 
         # Verify that command was successfully written
         try:
-            res = self.ble_conn.expect('.* Characteristic value was written successfully', timeout=10)
+            res = self.ble_conn.expect(self.value_written_success_msg, timeout=10)
         except pexpect.TIMEOUT, e:
-            print "State timeout"
+            print "ERROR: State timeout"
+            sys.exit(1)
 
         #Print messages if VERBOSE mode is enabled
 		#ble_msg_verbose()
@@ -359,7 +354,7 @@ class BleDfuServer(object):
 
         # Verify that command was successfully written
         try:
-            res = self.ble_conn.expect('.* Characteristic value was written successfully', timeout=10)
+            res = self.ble_conn.expect(self.value_written_success_msg, timeout=10)
         except pexpect.TIMEOUT, e:
             print "Send PKT_RCPT_NOTIF_REQ timeout"
 
@@ -376,7 +371,7 @@ class BleDfuServer(object):
 
         # Verify that data was successfully written
         try:
-            res = self.ble_conn.expect('.* Characteristic value was written successfully', timeout=10)
+            res = self.ble_conn.expect(self.value_written_success_msg, timeout=10)
         except pexpect.TIMEOUT, e:
             print "Data timeout"
 
@@ -397,29 +392,34 @@ class BleDfuServer(object):
     # Enable DFU Control Point CCCD (Notifications)
     #--------------------------------------------------------------------------
     def _dfu_enable_cccd(self, alreadyDfuMode):
-	handle=self.ctrlpt_cccd_handle
-	if(alreadyDfuMode==False):
-	   handle=self.ctrlpt_cccd_handle_buttonless
-        print "_dfu_enable_cccd"
-        cccd_enable_value_array_lsb = convert_uint16_to_array(0x0001)
-        cccd_enable_value_hex_string = convert_array_to_hex_string(cccd_enable_value_array_lsb)
-        self.ble_conn.sendline('char-write-req 0x%04x %s' % (self.ctrlpt_cccd_handle, cccd_enable_value_hex_string))
-        #self.ble_conn.sendline('char-write-req 0x%02x %s' % (self.ctrlpt_cccd_handle, cccd_enable_value_hex_string))
+		handle=self.ctrlpt_cccd_handle
+		if(alreadyDfuMode==False):
+		   handle=self.ctrlpt_cccd_handle_buttonless
+		
+		debug_msg("_dfu_enable_cccd")
+		cccd_enable_value_array_lsb = convert_uint16_to_array(0x0001)
+		cccd_enable_value_hex_string = convert_array_to_hex_string(cccd_enable_value_array_lsb)
+		command=str('char-write-req 0x%04x %s' % (handle, cccd_enable_value_hex_string))
+		debug_msg(command)
+		self.ble_conn.sendline(command)
 
-        # Verify that CCCD was successfully written
-        try:
-            res = self.ble_conn.expect('.* Characteristic value was written successfully', timeout=10)
-        except pexpect.TIMEOUT, e:
-            print "CCCD timeout"
-        
-		#Print messages if VERBOSE mode is enabled
-		#ble_msg_verbose()
+		if(alreadyDfuMode==False):
+			# Verify that CCCD was successfully written
+			try:
+				res = self.ble_conn.expect('Characteristic value was written successfully', timeout=10)
+			except pexpect.TIMEOUT, e:
+				print "ERROR: CCCD timeout"
+				sys.exit(0)
+				return False
+		        
+				#Print messages if VERBOSE mode is enabled
+				#ble_msg_verbose()
 
     #--------------------------------------------------------------------------
     # Send the Init info (*.dat file contents) to peripheral device.
     #--------------------------------------------------------------------------
     def _dfu_send_init(self):
-        print "dfu_send_info"
+        debug_msg("dfu_send_info")
 
         # Open the DAT file and create array of its contents
         bin_array = array('B', open(self.datfile_path, 'rb').read())
@@ -463,7 +463,7 @@ class BleDfuServer(object):
         print self.ctrlpt_handle
         print self.data_handle
         
-        print "_dfu_check_mode"
+        debug_msg("_dfu_check_mode")
         #look for DFU switch characteristic
 		
         resetHandle = getHandle(self.ble_conn, UUID.DFU_Control_Point)  
@@ -536,34 +536,45 @@ class BleDfuServer(object):
             self.ctrlpt_cccd_handle = ctrlpt_cccd_handle
         if data_handle:
             self.data_handle = data_handle
-    
+
     def switch_in_dfu_mode(self):
 		"""
 		Enable CCD to switch in DFU mode
 		"""
-		self._dfu_get_handles()
+		debug_msg("switch_in_dfu_mode")
 
 		#Enable notifications 
-		debug_msg(str('char-write-cmd 0x%02s %02x' % (self.ctrlpt_cccd_handle, 1)))  #char-write-req 0x0014 0100
-		self.ble_conn.sendline('char-write-req 0x%02s %02x' % (self.ctrlpt_cccd_handle, 1))
+		#debug_msg(str('char-write-cmd 0x%02s %02x' % (self.ctrlpt_cccd_handle, 1)))  #char-write-req 0x0014 0100
+		#self.ble_conn.sendline('char-write-req 0x%02s %02x' % (self.ctrlpt_cccd_handle, 1))
 
-		#self._dfu_enable_cccd(False) #Try this
-
-		#Reset the board in DFU mode. After reset the board will be disconnected
-		debug_msg(str('char-write-cmd 0x%02x 0104' % (self.reset_handle))) #char-write-req 0x0013 0104
-		#self.ble_conn.sendline('char-write-req 0x%02s %02x' % ("14", 1))
-		self.ble_conn.sendline('char-write-req 0x%02x 0104' % (self.reset_handle))  #Reset
-
+		if(self._dfu_enable_cccd(False)==False): #Try this
+			return False
 		time.sleep(0.5)
 
+		#TODO handle softdevice and bootloader upgrade
 		#print  "Send 'START DFU' + Application Command"
-		#self._dfu_state_set(0x0104)
+		#Reset the board in DFU mode. After reset the board will be disconnected
+		debug_msg(str('char-write-req 0x%02x 0104' % (self.reset_handle))) #char-write-req 0x0013 0104
+		self.ble_conn.sendline('char-write-req 0x%02x 0104' % (self.reset_handle))  #Reset
+		self.ble_conn.sendline('') #BR
+		try:
+			res = self.ble_conn.expect('.* Invalid file descriptor', timeout=10)
+		except pexpect.TIMEOUT, e:
+			print "ERROR: Reset timeout"
+			return False
 
 		debug_msg("END switch_in_dfu_mode")
 		#Reconnect the board.
 		ret = self.scan_and_connect()
 		print "Connected " + str(ret)
         
+    def switch_in_dfu_mode_alt(self):
+		debug_msg("switch_in_dfu_mode")
+		# scan for characteristics:
+		status = self._dfu_check_mode()
+		print "status " + str(status)
+		if not status:
+			return False
 
     """
     --------------------------------------------------------------------------
@@ -576,9 +587,10 @@ class BleDfuServer(object):
 		if not self._check_DFU_mode():
 			self.switch_in_dfu_mode()
 
-		print "Enable Notifications in DFU mode"
+		debug_msg("Enable Notifications in DFU mode")
 		self._dfu_enable_cccd(True)
 
+		#TODO Handle softdevice and bootloader upgrade
 		# Send 'START DFU' + Application Command
 		self._dfu_state_set(0x0104)
 
@@ -587,7 +599,7 @@ class BleDfuServer(object):
 
 		#print hex_size_array_lsb
 		self._dfu_data_send_req(hex_size_array_lsb)
-		print "Sending hex file size"
+		debug_msg("Sending hex file size")
 
 		# Send 'INIT DFU' Command
 		self._dfu_state_set(0x0200)
@@ -660,13 +672,14 @@ class BleDfuServer(object):
 		#Skip two rows		
 		try:
 			res = self.ble_conn.expect('handle:', timeout=10)
-			res = self.ble_conn.expect('handle:', timeout=10)
+			res = self.ble_conn.expect('handle:', timeout=0.1)
 		except pexpect.TIMEOUT, e:
 			#print "[ERROR]_check_DFU_mode: State timeout"
 			pass
 		except:
 			pass
 		
+		msg_ret = self.ble_conn.before
 		msg_ret = self.ble_conn.before
 		debug_msg(msg_ret)
 		
@@ -677,6 +690,7 @@ class BleDfuServer(object):
 			print "Board needs to switch in DFU mode"
 		else:
 			print "[ERROR]: Invalid state"
+			sys.exit(1)
 
 		return res
 		
@@ -687,6 +701,7 @@ class BleDfuServer(object):
     """
     def disconnect(self):
         self.ble_conn.sendline('exit')
+        print "*****OK*****"
         self.ble_conn.close()
         
         
@@ -844,7 +859,7 @@ def main():
     #if unpacker != None:
     #    unpacker.delete()
 
-    print "DFU Server done"
+    debug_msg("DFU Server done")
 
 """
 ------------------------------------------------------------------------------

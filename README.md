@@ -19,7 +19,7 @@ The *dfu.py* utility comes into play only if the peripheral has the DFU Service 
 System:
 * Ubuntu 14.04
 * Asus X550LD (With integrated Bluetooth 4.0 interface)
-* bluez - 5.4 or later (type "bluetoothd -v" to check your bluez version)
+* bluez - 5.34 or later (type "bluetoothd -v" to check your bluez version)
 
 This project assumes you are developing on a Linux/Unix or OSX system and deploying to a Linux system. 
 
@@ -114,43 +114,32 @@ Example of *dfu.py* Output
     DFU Server done
 
 **NOTE:**  
-The final "State timeout" is due to the target peripheral rebooting, as expected, and the disconnect not getting back soon enough.  
-This is benign: the update should have been successful and the peripheral should have restarted and run the new firmware. 
+The final "State timeout" is due to the target peripheral rebooting, as expected, and the disconnect not getting back soon enough.<br>
+This is benign: the update should have been successful and the peripheral should have restarted and run the new firmware.<br>
 
 <b>For Windows or Mac here other repos:</b><br>
 Windows Application: https://github.com/astronomer80/nrf52_bledfu_win/tree/consoleapp<br>
 Mac application: https://github.com/astronomer80/nrf52_bledfu_mac/tree/ConsoleAppTest<br>
 
-***DFU Procedure performed by this script****
-
-1)Send 'START DFU' opcode + Application Command (0x0104)
-
-2)Send the image size
-
-3)Send 'INIT DFU' Command (0x0200): Called in the controlPoint_CalueChanged event invoked when the BLE device replies after sending the image size.
-
-4)Transmit the Init image (The file DAT content)
-
-5)Send 'INIT DFU' + Complete Command (0x0201)
-
-6)Send packet receipt notification interval (currently 10) (0x080000)
-
-7)Send 'RECEIVE FIRMWARE IMAGE' command to set DFU in firmware receive state. (0x0300)
-
-8)Send bin array contents as a series of packets (burst mode). Each segment is pkt_payload_size bytes long. For every packet send, wait for notification.
-
-9)Send Validate Command (0x0400)
-
-10)Send Activate and Reset Command (0x0500)
+***DFU Procedure performed by this script****<br>
+1)Send 'START DFU' opcode + Application Command (0x0104)<br>
+2)Send the image size<br>
+3)Send 'INIT DFU' Command (0x0200): Called in the controlPoint_CalueChanged event invoked when the BLE device replies after sending the image size.<br>
+4)Transmit the Init image (The file DAT content)<br>
+5)Send 'INIT DFU' + Complete Command (0x0201)<br>
+6)Send packet receipt notification interval (currently 10) (0x080000)<br>
+7)Send 'RECEIVE FIRMWARE IMAGE' command to set DFU in firmware receive state. (0x0300)<br>
+8)Send bin array contents as a series of packets (burst mode). Each segment is pkt_payload_size bytes long. For every packet send, wait for notification.<br>
+9)Send Validate Command (0x0400)<br>
+10)Send Activate and Reset Command (0x0500)<br>
 
 **LINKS**  
-https://infocenter.nordicsemi.com/topic/com.nordic.infocenter.sdk5.v11.0.0/bledfu_application.html
-
-https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.v11.0.0%2Fbledfu_transport_bleservice.html
-
-https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.v11.0.0%2Fbledfu_architecture_transfer.html
+https://infocenter.nordicsemi.com/topic/com.nordic.infocenter.sdk5.v11.0.0/bledfu_application.html<br>
+https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.v11.0.0%2Fbledfu_transport_bleservice.html<br>
+https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.v11.0.0%2Fbledfu_architecture_transfer.html<br>
 
 **TODO**  
+- Bluez installation automatically
 - Add scan command
 - Include nrfutil command
 - Send encrypted applications
