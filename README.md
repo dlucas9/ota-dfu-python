@@ -143,3 +143,5 @@ https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.
 - Add scan command
 - Include nrfutil command
 - Send encrypted applications
+- Speedup the procedure
+- Add softdevice and bootloader update
