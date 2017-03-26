@@ -2,8 +2,15 @@ sudo hcitool lescan
 
 sudo ./dfu.py -f /home/angelo/Dropbox/test_new/Primo/zip/app_blink_dfu_500/s132_pca10040.bin -d /home/angelo/Dropbox/test_new/Primo/zip/app_blink_dfu_500/s132_pca10040.dat -a E8:EC:B8:30:AB:B5
 
+sudo ./dfu.py -f /home/angelo/Dropbox/test_new/Primo/zip/app_blink_dfu_500/s132_pca10040.bin -d /home/angelo/Dropbox/test_new/Primo/zip/app_blink_dfu_500/s132_pca10040.dat -a E8:EC:B8:30:AB:B4
+
+sudo ./dfu.py -f /home/angelo/Dropbox/test_new/Primo/zip/app_blink_dfu_500/s132_pca10040.bin -d /home/angelo/Dropbox/test_new/Primo/zip/app_blink_dfu_500/s132_pca10040.dat -a C1:E4:2B:A6:CF:FD
+
+
 
 sudo gatttool -b E8:EC:B8:30:AB:B4 -t random --interactive
+sudo gatttool -b C1:E4:2B:A6:CF:FC -t random --interactive
+
 
 self.ble_conn.sendline('bluetoothd -v')
 		self.ble_msg_verbose()
@@ -12,3 +19,15 @@ Switch in DFU mode
 char-write-req 0x0014 0100
 char-write-req 0x0013 0104
 
+
+char-read-uuid 00001534-1212-efde-1523-785feabcd123
+
+Char write with UART
+char-write-req 0x000e 0x47   
+//write G
+char-write-req 0x000e 0x640x30   
+//write d0
+char-write-req 0x000e 0x640x31
+//write d0
+char-write-req 0x000e 0x640x31
+//write d0
