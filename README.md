@@ -118,8 +118,8 @@ The final "State timeout" is due to the target peripheral rebooting, as expected
 This is benign: the update should have been successful and the peripheral should have restarted and run the new firmware.<br>
 
 <b>For Windows or Mac here other repos:</b><br>
-Windows Application: https://github.com/astronomer80/nrf52_bledfu_win/tree/consoleapp<br>
-Mac application: https://github.com/astronomer80/nrf52_bledfu_mac/tree/ConsoleAppTest<br>
+Windows Application: https://github.com/astronomer80/nrf52_bledfu_win<br>
+Mac application: https://github.com/astronomer80/nrf52_bledfu_mac<br>
 
 ***DFU Procedure performed by this script****<br>
 1)Send 'START DFU' opcode + Application Command (0x0104)<br>
@@ -143,3 +143,5 @@ https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.
 - Add scan command
 - Include nrfutil command
 - Send encrypted applications
+- Speedup the procedure
+- Add softdevice and bootloader update
