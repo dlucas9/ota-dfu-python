@@ -139,9 +139,14 @@ https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.
 https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.v11.0.0%2Fbledfu_architecture_transfer.html<br>
 
 **TODO**  
+<<<<<<< HEAD
 - Bluez installation automatically
 - Add scan command
 - Include nrfutil command
+=======
+- Go in DFU Mode buttonless: 
+Check buttonless branch. TODO: Clean the code
+>>>>>>> 6ea5d668def44647b1b9ca3cc95afb60863eaba3
 - Send encrypted applications
 - Speedup the procedure
 - Add softdevice and bootloader update
