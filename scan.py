@@ -6,7 +6,7 @@
 
 from subprocess import call
 
-import pexpect
+import pexpect, sys
 import signal
 
 #------------------------------------------------------------------------------
@@ -19,12 +19,13 @@ class HciTool:
         return
 
     def scan( self ):
-
+ 	print "test"
         try:
             self.hcitool = pexpect.spawn('hcitool lescan')
             #self.hcitool.logfile = sys.stdout
             index = self.hcitool.expect(['LE Scan ...'], 1)
         except pexpect.EOF:
+	    print "Err"
             self.hcitool.terminate(force=True)
             return []
         except Exception as err:
@@ -105,7 +106,7 @@ if __name__ == '__main__':
     # Do not litter the world with broken .pyc files.
     sys.dont_write_bytecode = True
 
-    #scanner = Scan("DfuTarg")  # specific advertisement name
+    #scanner = Scan("Blink_Dfu")  # specific advertisement name
     scanner = Scan(None)      # any advertising name
     
     scanner.scan()

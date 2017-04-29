@@ -1,5 +1,14 @@
+143:     pkt_receipt_interval = 10 #DEFAULT=10  #char-write-req 0x0010 080a00
+
+377: _dfu_pkt_rcpt_notif_req
+
+678: 	#if (segment_count % self.pkt_receipt_interval) == 0:  #pkt_receipt_interval=10
+
+
+
 sudo hcitool lescan
 
+cd /home/angelo/ota-dfu-python
 sudo ./dfu.py -f /home/angelo/Dropbox/test_new/Primo/zip/app_blink_dfu_500/s132_pca10040.bin -d /home/angelo/Dropbox/test_new/Primo/zip/app_blink_dfu_500/s132_pca10040.dat -a E8:EC:B8:30:AB:B5
 
 sudo ./dfu.py -f /home/angelo/Dropbox/test_new/Primo/zip/app_blink_dfu_500/s132_pca10040.bin -d /home/angelo/Dropbox/test_new/Primo/zip/app_blink_dfu_500/s132_pca10040.dat -a E8:EC:B8:30:AB:B4
@@ -31,3 +40,26 @@ char-write-req 0x000e 0x640x31
 //write d0
 char-write-req 0x000e 0x640x31
 //write d0
+
+Char read with UART
+Enable notifications
+char-desc: get the handles for each the characteristics
+char-write-req 0x0012 0100: enable notifications
+char-write-req 0x0012 0100: disable notifications
+
+char-read-uuid 6e400002-b5a3-f393-e0a9-e50e24dcca9e
+
+#Validate
+char-write-req 0x0010 04
+#Reset
+char-write-req 0x0010 05
+
+#Trunks:
+- Windows version:
+public static int MAX_SIZE_PER_GROUP = 20;
+public static short NUMBER_OF_PACKET_AT_TIME = 10;
+
+- Linux
+#TODO Check this parameter to speed up the rprocedure
+pkt_receipt_interval = 10 #DEFAULT=10
+pkt_payload_size     = 20 #DEFAULT=20

@@ -1,0 +1,2 @@
+#Write the DFU on the Arduino Primo
+/home/angelo/Dropbox/test_new/Primo/OpenOCD-0.9.0-arduino/bin/openocd -s /home/angelo/Dropbox/test_new/Primo/OpenOCD-0.9.0-arduino/share/openocd/scripts/ -f /home/angelo/Dropbox/test_new/Primo/OpenOCD-0.9.0-arduino/share/openocd/scripts/board/arduino_primo.cfg -c "program /home/angelo/ota-dfu-python/example/DFU/nrf52832_xxaa_s132_DFU_Primo.hex verify reset exit"
