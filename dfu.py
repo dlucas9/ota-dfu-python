@@ -1,11 +1,9 @@
 #!/usr/bin/env python
-"""
-------------------------------------------------------------------------------
- DFU Server for Nordic nRF52 based systems.
- Conforms to nRF52_SDK 11.0 BLE_DFU requirements.
-------------------------------------------------------------------------------
-"""
-import os, re
+#------------------------------------------------------------------------------
+# DFU Server for Nordic nRF51 based systems.
+# Conforms to nRF51_SDK 8.0 BLE_DFU requirements.
+#------------------------------------------------------------------------------
+import os
 import sys
 import pexpect
 import optparse
@@ -14,8 +12,9 @@ import time
 from intelhex import IntelHex
 from array    import array
 from unpacker import Unpacker
+from tqdm import tqdm
 
-VERBOSE=1
+debug = False
 
 # DFU Opcodes
 class Commands:
@@ -60,19 +59,21 @@ DFU_status_to_str = {
     "06" : "OPER_FAILED",
 }
 
-class UUID:
-    CCCD 				= "00002902-0000-1000-8000-00805f9b34fb"
-    DFU_Control_Point 	= "00001531-1212-efde-1523-785feabcd123"
-    DFU_Packet			= "00001532-1212-efde-1523-785feabcd123"
-    DFU_Version			= "00001534-1212-efde-1523-785feabcd123"
+def progress(count, total, suffix=''):
+    bar_len = 60
+    filled_len = int(round(bar_len * count / float(total)))
 
-"""
-------------------------------------------------------------------------------
- Convert a number into an array of 4 bytes (LSB).
- This has been modified to prepend 8 zero bytes per the new DFU spec.
-------------------------------------------------------------------------------
-"""
-def convert_uint32_to_array(value):
+    percents = round(100.0 * count / float(total), 1)
+    bar = '=' * filled_len + '-' * (bar_len - filled_len)
+
+    sys.stdout.write('[%s] %s%s ...%s\r' % (bar, percents, '%', suffix))
+    sys.stdout.flush()  # As suggested by Rom Ruben
+
+#------------------------------------------------------------------------------
+# Convert a number into an array of 4 bytes (LSB).
+# This has been modified to prepend 8 zero bytes per the new DFU spec.
+#------------------------------------------------------------------------------
+def convert_uint32_to_array2(value):
     return [0,0,0,0,0,0,0,0,
            (value >> 0  & 0xFF),
            (value >> 8  & 0xFF),
@@ -80,22 +81,27 @@ def convert_uint32_to_array(value):
            (value >> 24 & 0xFF)
     ]
 
-"""
-------------------------------------------------------------------------------
- Convert a number into an array of 2 bytes (LSB).
-------------------------------------------------------------------------------
-"""
+def convert_uint32_to_array(value):
+    return [
+           (value >> 0  & 0xFF),
+           (value >> 8  & 0xFF),
+           (value >> 16 & 0xFF),
+           (value >> 24 & 0xFF)
+    ]
+
+
+#------------------------------------------------------------------------------
+# Convert a number into an array of 2 bytes (LSB).
+#------------------------------------------------------------------------------
 def convert_uint16_to_array(value):
     return [
         (value >> 0 & 0xFF),
         (value >> 8 & 0xFF)
     ]
 
-"""
-------------------------------------------------------------------------------
-
-------------------------------------------------------------------------------
-"""
+#------------------------------------------------------------------------------
+#
+#------------------------------------------------------------------------------
 def convert_array_to_hex_string(arr):
     hex_str = ""
     for val in arr:
@@ -105,121 +111,69 @@ def convert_array_to_hex_string(arr):
 
     return hex_str
 
-def debug_msg(message):
-	"""
-	Print messages in verbose mode
-	"""
-	if VERBOSE:
-		print "[DEBUG]" + message
-
-
-	
-"""
-------------------------------------------------------------------------------
- Define the BleDfuServer class
-------------------------------------------------------------------------------
-"""
+#------------------------------------------------------------------------------
+# Define the BleDfuServer class
+#------------------------------------------------------------------------------
 class BleDfuServer(object):
-    """
+
     #--------------------------------------------------------------------------
     # Adjust these handle values to your peripheral device requirements.
     #--------------------------------------------------------------------------
-    """
-    ctrlpt_handle      = 0x10
-    ctrlpt_cccd_handle = 0x11
-    data_handle        = 0x0e
-    reset_handle      = 0x13
-    ctrlpt_cccd_handle_buttonless  = 0x14
+    ctrlpt_handle      = 0x12
+    ctrlpt_cccd_handle = 0x13
+    data_handle        = 0x10
 
-    #TODO Check this parameter to speed up the rprocedure
-    pkt_receipt_interval = 10 #DEFAULT=10
-    pkt_payload_size     = 20 #DEFAULT=20
+    pkt_receipt_interval = 10
+    pkt_payload_size     = 20
 
-    value_written_success_msg='Characteristic value was written successfully'
-    value_written_success_msg_alt='.* Characteristic value was written successfully'
+    #--------------------------------------------------------------------------
+    #
+    #--------------------------------------------------------------------------
+    def __init__(self, target_mac, binfile_path, datfile_path):
 
-    """
-    --------------------------------------------------------------------------
-    
-    --------------------------------------------------------------------------
-    """
-    def __init__(self, target_mac, hexfile_path, datfile_path):
-		debug_msg("Init")
-		self.target_mac = target_mac
+        self.binfile_path = binfile_path
+        self.datfile_path = datfile_path
 
-		self.hexfile_path = hexfile_path
-		self.datfile_path = datfile_path
+        if(debug):
+            print(datfile_path, binfile_path)
+            print("gatttool -b '%s' -t random --interactive" % target_mac)
 
-		self.bluez_version=pexpect.run ('bluetoothd -v').rstrip()
-		debug_msg("BlueZ version: " + self.bluez_version)
+        self.ble_conn = pexpect.spawn("gatttool -b '%s' -t random --interactive" % target_mac)
 
-		#Send gatttoll command
-		self.ble_conn = pexpect.spawn("gatttool -b '%s' -t random --interactive" % target_mac)
+        # remove next line comment for pexpect detail tracing.
+        #self.ble_conn.logfile = sys.stdout
 
-		# remove next line comment for pexpect detail tracing.
-		#TODO reuse this
-		#self.ble_conn.logfile = sys.stdout
-
-    
-    def ble_msg_verbose(self):
-    	"""
-		Print messages if VERBOSE mode is enabled
-    	"""
-        if VERBOSE:    
-            msg_ret = self.ble_conn.before
-            if msg_ret!="":
-                print "[DEBUG]" + msg_ret
-
-
-    """
-    --------------------------------------------------------------------------
-     Connect to peripheral device.
-    --------------------------------------------------------------------------
-    """
+    #--------------------------------------------------------------------------
+    # Connect to peripheral device.
+    #--------------------------------------------------------------------------
     def scan_and_connect(self):
-		debug_msg("scan_and_connect")
 
-		debug_msg("connect")
-		self.ble_conn.sendline('connect')
+        if(debug): print("scan_and_connect")
 
-		if(float(self.bluez_version)>=5.4):
-			debug_msg("BlueZ 5.4")
-			try:
-				
-				#For BlueZ >5.4
-				self.ble_conn.expect('\[CON\].*>', timeout=10)                
-			except pexpect.TIMEOUT, e:
-				try:
-					self.ble_conn.expect('\[LE\]>', timeout=10)
-				except pexpect.TIMEOUT, e:
-					print "[scan_and_connect] Error: Connection timeout 2. \nMake sure that bluez version 5.40 and later is installed"
-				self.ble_msg_verbose()
-				return False
-		else:
-			debug_msg("BlueZ 5.3")
-			#For BlueZ >5.3
-			try:
-				res = self.ble_conn.expect('Connection successful', timeout=10)
-			except pexpect.TIMEOUT, e:
-				print "[scan_and_connect] Error: Connection timeout 3"
-				return False
+        try:
+            self.ble_conn.expect('\[LE\]>', timeout=10)
+        except pexpect.TIMEOUT:
+            print("Connect timeout")
 
-				
-		debug_msg("END scan_and_connect")
-		return True        
-    """
-    --------------------------------------------------------------------------
-     Wait for notification to arrive.
-     Example format: "Notification handle = 0x0019 value: 10 01 01"
-    --------------------------------------------------------------------------
-    """
+        if(debug): print('>>connect')
+        self.ble_conn.sendline('connect')
+
+        try:
+            self.ble_conn.expect('Connection successful', timeout=10)
+        except pexpect.TIMEOUT:
+            print("Connect timeout")
+
+    #--------------------------------------------------------------------------
+    # Wait for notification to arrive.
+    # Example format: "Notification handle = 0x0019 value: 10 01 01"
+    #--------------------------------------------------------------------------
     def _dfu_wait_for_notify(self):
 
         while True:
-            #print "dfu_wait_for_notify"
+            if(debug): print("(f)dfu_wait_for_notify")
 
             if not self.ble_conn.isalive():
-                print "connection not alive"
+                print("connection not alive")
                 return None
 
             try:
@@ -236,60 +190,53 @@ class BleDfuServer(object):
                 # raise an exception. Otherwise, if not a link-lost condition,
                 # continue to wait.
                 #
+
+
+                if(debug): print('>>')
                 self.ble_conn.sendline('')
                 string = self.ble_conn.before
+                if(debug): print("Timeout of some sort:" + string)
                 if '[   ]' in string:
-                    print 'Connection lost! '
+                    print('Connection lost! {0}.{1}'.format(name, os.getpid()))
                     raise Exception('Connection Lost')
                 return None
-			
-			#Print messages if VERBOSE mode is enabled
-            self.ble_msg_verbose()
-	    
+
             if index == 0:
                 after = self.ble_conn.after
-		debug_msg("After:" + str(after))
                 hxstr = after.split()[3:]
                 handle = long(float.fromhex(hxstr[0]))
-		debug_msg("HAndle:" + str(handle))
                 return hxstr[2:]
 
             else:
-                print "unexpeced index: {0}".format(index)
+                print("unexpeced index: {0}".format(index))
                 return None
 
-    """
-    --------------------------------------------------------------------------
-     Parse notification status results
-    --------------------------------------------------------------------------
-    """
+    #--------------------------------------------------------------------------
+    # Parse notification status results
+    #--------------------------------------------------------------------------
     def _dfu_parse_notify(self, notify):
 
         if len(notify) < 3:
-            print "notify data length error"
+            print("notify data length error")
             return None
 
         dfu_oper = notify[0]
         oper_str = DFU_oper_to_str[dfu_oper]
 
-        debug_msg("_dfu_parse_notify:" + str(notify) + " dfu_oper:" + str(dfu_oper))
-
         if oper_str == "RESPONSE":
+
             dfu_process = notify[1]
             dfu_status  = notify[2]
 
             process_str = DFU_proc_to_str[dfu_process]
             status_str  = DFU_status_to_str[dfu_status]
 
-            debug_msg(str("oper: {0}, proc: {1}, status: {2}".format(oper_str, process_str, status_str)))
+            print("oper: {0}, proc: {1}, status: {2}".format(oper_str, process_str, status_str))
 
             if oper_str == "RESPONSE" and status_str == "SUCCESS":
                 return "OK"
             else:
-                print "ERROR: [_dfu_parse_notify]"
-                sys.exit(1)
                 return "FAIL"
-
 
         if oper_str == "PKT_RCPT_NOTIF":
 
@@ -304,43 +251,87 @@ class BleDfuServer(object):
             receipt = receipt + (byte3 << 8)
             receipt = receipt + (byte4 << 0)
 
-            print "PKT_RCPT: {0:8}".format(receipt) + " of " + str(self.hex_size)
+            print("PKT_RCPT: {0:8}".format(receipt))
 
             return "OK"
 
 
-    """
-    --------------------------------------------------------------------------
-     Send two bytes: command + option
-    --------------------------------------------------------------------------
-    """
+    #--------------------------------------------------------------------------
+    # Send two bytes: command + option
+    #--------------------------------------------------------------------------
     def _dfu_state_set(self, opcode):
-		debug_msg(str('char-write-req 0x%04x %04x' % (self.ctrlpt_handle, opcode)))
-		self.ble_conn.sendline('char-write-req 0x%04x %04x' % (self.ctrlpt_handle, opcode))
+        if(debug): 
+            print("(f)dfu_state_set")
+            print('>>char-write-req 0x%04x %04x' % (self.ctrlpt_handle, opcode))
+        
+        self.ble_conn.sendline('char-write-req 0x%04x %04x' % (self.ctrlpt_handle, opcode))
 
-		# Verify that command was successfully written
-		try:
-			res = self.ble_conn.expect(self.value_written_success_msg, timeout=10)
-		except pexpect.TIMEOUT, e:
-			print "ERROR: _dfu_state_set State timeout"
+        # Verify that command was successfully written
+        try:
+            res = self.ble_conn.expect('.* written successfully', timeout=10)
+        except(pexpect.TIMEOUT):
+            print("State timeout")
 
-		self.ble_msg_verbose()
+    def _dfu_set_prn(self, prn):
+        if(debug):
+            print("(f)dfu_set_prn")
+            print('>>char-write-req 0x%04x 02%04x' % (self.ctrlpt_handle, prn))
+
+        self.ble_conn.sendline('char-write-req 0x%04x 02%04x' % (self.ctrlpt_handle, prn))
+
+        # Verify that command was successfully written
+        try:
+            self.ble_conn.expect('.* written successfully', timeout=10)
+        except(pexpect.TIMEOUT):
+            print("State timeout")
+
+    def _dfu_calc_crc(self):
+        if(debug): 
+            print("(f)dfu_calc_crc")
+            print('>>char-write-req 0x%04x 03' % (self.ctrlpt_handle))
+
+        self.ble_conn.sendline('char-write-req 0x%04x 03' % (self.ctrlpt_handle))
+
+        # Verify that command was successfully written
+        try:
+            self.ble_conn.expect('.* written successfully', timeout=10)
+        except(pexpect.TIMEOUT, e):
+            print("State timeout")
+
+        return self._dfu_wait_for_notify()
+
+    def _dfu_execute(self):
+        if(debug): 
+            print("(f)dfu_execute")
+            print('>>char-write-req 0x%04x 04' % (self.ctrlpt_handle))
+        self.ble_conn.sendline('char-write-req 0x%04x 04' % (self.ctrlpt_handle))
+
+        # Verify that command was successfully written
+        try:
+            self.ble_conn.expect('.* written successfully', timeout=10)
+        except(pexpect.TIMEOUT):
+            print("State timeout")
+
+        return self._dfu_wait_for_notify()
 
     #--------------------------------------------------------------------------
     # Send one byte: command
     #--------------------------------------------------------------------------
     def _dfu_state_set_byte(self, opcode):
+        if(debug): print('>>char-write-req 0x%04x %02x' % (self.ctrlpt_handle, opcode))
         self.ble_conn.sendline('char-write-req 0x%04x %02x' % (self.ctrlpt_handle, opcode))
 
         # Verify that command was successfully written
         try:
-            res = self.ble_conn.expect(self.value_written_success_msg, timeout=10)
-        except pexpect.TIMEOUT, e:
-            print "ERROR: State timeout"
-            sys.exit(1)
+            self.ble_conn.expect('.* written successfully', timeout=10)
+        except(pexpect.TIMEOUT):
+            print("State timeout")
 
-        #Print messages if VERBOSE mode is enabled
-		#ble_msg_verbose()
+    def _dfu_cmd_send_req(self, opcode, data_arr):
+        if(debug): print("(f)dfu_cmd_send_req")
+        hex_str = convert_array_to_hex_string(data_arr)
+        if(debug): print('>>char-write-req 0x%04x %04x%s' % (self.ctrlpt_handle, opcode, hex_str))
+        self.ble_conn.sendline('char-write-req 0x%04x %04x%s' % (self.ctrlpt_handle, opcode, hex_str))
 
     #--------------------------------------------------------------------------
     # Send 3 bytes: PKT_RCPT_NOTIF_REQ with interval of 10 (0x0a)
@@ -350,82 +341,175 @@ class BleDfuServer(object):
         opcode = 0x080000
         opcode = opcode + (self.pkt_receipt_interval << 8)
 
+        if(debug): print('>>char-write-req 0x%04x %06x' % (self.ctrlpt_handle, opcode))
         self.ble_conn.sendline('char-write-req 0x%04x %06x' % (self.ctrlpt_handle, opcode))
 
         # Verify that command was successfully written
         try:
-            res = self.ble_conn.expect(self.value_written_success_msg, timeout=10)
-        except pexpect.TIMEOUT, e:
-            print "Send PKT_RCPT_NOTIF_REQ timeout"
-
-        #Print messages if VERBOSE mode is enabled
-		#ble_msg_verbose()
+            self.ble_conn.expect('.* written successfully', timeout=10)
+        except(pexpect.TIMEOUT, e):
+            print("Send PKT_RCPT_NOTIF_REQ timeout")
 
     #--------------------------------------------------------------------------
     # Send an array of bytes: request mode
     #--------------------------------------------------------------------------
     def _dfu_data_send_req(self, data_arr):
+        if(debug): print("(f)dfu_data_send_req")
         hex_str = convert_array_to_hex_string(data_arr)
         #print hex_str
+        if(debug): print('>>char-write-req 0x%04x %s' % (self.data_handle, hex_str))
         self.ble_conn.sendline('char-write-req 0x%04x %s' % (self.data_handle, hex_str))
 
         # Verify that data was successfully written
         try:
-            res = self.ble_conn.expect(self.value_written_success_msg, timeout=10)
-        except pexpect.TIMEOUT, e:
-            print "Data timeout"
-
-	
-	#Print messages if VERBOSE mode is enabled
-	#ble_msg_verbose()
-	
+            self.ble_conn.expect('.* written successfully', timeout=10)
+        except(pexpect.TIMEOUT, e):
+            print("Data timeout")
 
     #--------------------------------------------------------------------------
     # Send an array of bytes: command mode
     #--------------------------------------------------------------------------
     def _dfu_data_send_cmd(self, data_arr):
+        # print("(f)dfu_data_send_cmd")
         hex_str = convert_array_to_hex_string(data_arr)
         #print hex_str
+        # print('>>char-write-cmd 0x%04x %s' % (self.data_handle, hex_str))
         self.ble_conn.sendline('char-write-cmd 0x%04x %s' % (self.data_handle, hex_str))
 
     #--------------------------------------------------------------------------
     # Enable DFU Control Point CCCD (Notifications)
     #--------------------------------------------------------------------------
-    def _dfu_enable_cccd(self, alreadyDfuMode):
-		handle=self.ctrlpt_cccd_handle
-		if(alreadyDfuMode==False):
-		   handle=self.ctrlpt_cccd_handle_buttonless
-		
-		debug_msg("_dfu_enable_cccd")
-		cccd_enable_value_array_lsb = convert_uint16_to_array(0x0001)
-		cccd_enable_value_hex_string = convert_array_to_hex_string(cccd_enable_value_array_lsb)
-		command=str('char-write-req 0x%04x %s' % (handle, cccd_enable_value_hex_string))
-		debug_msg(command)
-		self.ble_conn.sendline(command)
+    def _dfu_enable_cccd(self):
+        if(debug): print("(f)dfu_enable_cccd")
+        cccd_enable_value_array_lsb = convert_uint16_to_array(0x0001)
+        cccd_enable_value_hex_string = convert_array_to_hex_string(cccd_enable_value_array_lsb)
+        if(debug): print('>>char-write-req 0x%04x %s' % (self.ctrlpt_cccd_handle, cccd_enable_value_hex_string))
+        self.ble_conn.sendline('char-write-req 0x%04x %s' % (self.ctrlpt_cccd_handle, cccd_enable_value_hex_string))
 
-		if(alreadyDfuMode==False):
-			# Verify that CCCD was successfully written
-			try:
-				res = self.ble_conn.expect('Characteristic value was written successfully', timeout=10)
-			except pexpect.TIMEOUT, e:
-				print "ERROR: CCCD timeout"
-				sys.exit(0)
-				return False
-		        
-				#Print messages if VERBOSE mode is enabled
-				#ble_msg_verbose()
+        # Verify that CCCD was successfully written
+        try:
+            self.ble_conn.expect('.* written successfully', timeout=10)
+        except(pexpect.TIMEOUT):
+            print("CCCD timeout")
 
     #--------------------------------------------------------------------------
     # Send the Init info (*.dat file contents) to peripheral device.
     #--------------------------------------------------------------------------
     def _dfu_send_init(self):
-        debug_msg("dfu_send_info")
+
+        if(debug): print("dfu_send_init")
+
+         # Send 'START DFU' + Application Command
+        self._dfu_state_set(0x0601)
+        self._dfu_wait_for_notify()
 
         # Open the DAT file and create array of its contents
         bin_array = array('B', open(self.datfile_path, 'rb').read())
 
+        # Transmit binary image size
+        self.dat_size = len(bin_array)
+        if(debug): print("len ", self.dat_size)
+        dat_size_array_lsb = convert_uint32_to_array(len(bin_array))
+        if(debug): print(dat_size_array_lsb)
+        self._dfu_cmd_send_req(0x0101,dat_size_array_lsb)
+
+        # Wait for INIT DFU notification (indicates flash erase completed)
+        notify = self._dfu_wait_for_notify()
+        if(debug):
+            print("Notify:")
+            print(notify)
+
         # Transmit Init info
-        self._dfu_data_send_req(bin_array)
+        segment_count = 1
+        if(debug):
+            print(self.dat_size, self.pkt_payload_size, self.dat_size/self.pkt_payload_size)
+            print(bin_array)
+        
+        for i in range(0, self.dat_size, self.pkt_payload_size):
+
+            progress(i,self.dat_size)
+
+            segment = bin_array[i:i + self.pkt_payload_size]
+            self._dfu_data_send_cmd(segment)
+
+            if(debug): print("segment #%i" % (segment_count))
+
+            if (segment_count % self.pkt_receipt_interval) == 0:
+                notify = self._dfu_wait_for_notify()
+                if(debug): print("Notify:", notify)
+
+                # if notify == None:
+                #     raise Exception("no notification received")
+
+                # dfu_status = self._dfu_parse_notify(notify)
+
+                # if dfu_status == None or dfu_status != "OK":
+                #     raise Exception("bad notification status")
+
+            segment_count += 1
+
+        self._dfu_calc_crc()
+        self._dfu_execute()
+
+    def _dfu_send_app(self):
+
+        if(debug): print("dfu_send_app")
+
+        # Transmit binary image size
+        hex_size_array_lsb = convert_uint32_to_array(len(self.bin_array))
+
+        if(debug):
+            print("len ", self.hex_size)
+            print(hex_size_array_lsb)
+
+            print(self.hex_size, self.pkt_payload_size, self.hex_size/self.pkt_payload_size)
+
+        max_txfer_size = 0x1000
+        total = self.hex_size/max_txfer_size+1
+        for j in range(0, total):
+
+            progress(j,total)
+
+            offset=j*max_txfer_size
+            payload = self.bin_array[offset:offset+max_txfer_size]
+            if(debug): print("Offset: %i, Payload size: %i" % (offset, len(payload)))
+
+            # Send 'START DFU' + Application Command
+            self._dfu_state_set(0x0602)
+            if(debug): print(self._dfu_wait_for_notify())
+
+            # self._dfu_cmd_send_req(0x0102,hex_size_array_lsb)
+            self._dfu_cmd_send_req(0x0102,convert_uint32_to_array(len(payload)))
+
+            # Wait for INIT DFU notification (indicates flash erase completed)
+            notify = self._dfu_wait_for_notify()
+            if(debug):
+                print("Notify:")
+                print(notify)
+
+            segment_count = 1
+            for i in range(0, len(payload), self.pkt_payload_size):
+
+                segment = payload[i:i + self.pkt_payload_size]
+                self._dfu_data_send_cmd(segment)
+
+                if (segment_count % self.pkt_receipt_interval) == 0:
+                    if(debug): print("segment #%i,%i : %i" % (j, segment_count, len(segment)))
+                    notify = self._dfu_wait_for_notify()
+                    if(debug): print("Notify:", notify)
+
+                    # if notify == None:
+                    #     raise Exception("no notification received")
+
+                    # dfu_status = self._dfu_parse_notify(notify)
+
+                    # if dfu_status == None or dfu_status != "OK":
+                    #     raise Exception("bad notification status")
+
+                segment_count += 1
+
+            self._dfu_calc_crc()
+            self._dfu_execute()
 
     #--------------------------------------------------------------------------
     # Initialize: 
@@ -434,318 +518,68 @@ class BleDfuServer(object):
     #--------------------------------------------------------------------------
     def input_setup(self):
 
-        print "Sending file " + self.hexfile_path + " to " + self.target_mac
+        if(debug): print("input_setup")
 
-        if self.hexfile_path == None:
+        if self.binfile_path == None:
             raise Exception("input invalid")
 
-        name, extent = os.path.splitext(self.hexfile_path)
+        name, extent = os.path.splitext(self.binfile_path)
 
         if extent == ".bin":
-            self.bin_array = array('B', open(self.hexfile_path, 'rb').read())
+            self.bin_array = array('B', open(self.binfile_path, 'rb').read())
             self.hex_size = len(self.bin_array)
-            print "bin array size: ", self.hex_size
+            if(debug): print("bin array size: ", self.hex_size)
             return
 
         if extent == ".hex":
-            intelhex = IntelHex(self.hexfile_path)
+            intelhex = IntelHex(self.binfile_path)
             self.bin_array = intelhex.tobinarray()
             self.hex_size = len(self.bin_array)
-            print "bin array size: ", self.hex_size
+            if(debug): print("bin array size: ", self.hex_size)
             return
 
         raise Exception("input invalid")
-    
-    def _dfu_check_mode(self):
-        
-        self._dfu_get_handles()
-        print self.ctrlpt_cccd_handle
-        print self.ctrlpt_handle
-        print self.data_handle
-        
-        debug_msg("_dfu_check_mode")
-        #look for DFU switch characteristic
-		
-        resetHandle = getHandle(self.ble_conn, UUID.DFU_Control_Point)  
-        
-        print "resetHandle " + str(resetHandle)
-        
-        self.ctrlpt_cccd_handle=None
-        
-        if not resetHandle:
-            # maybe it already is IN DFU mode
-            self.ctrlpt_handle = getHandle(self.ble_conn, UUID.DFU_Control_Point)
-            if not self.ctrlpt_handle:
-                print "Not in DFU, nor has the toggle characteristic, aborting.."
-                return False
-        
-        if resetHandle or self.ctrlpt_handle:
-            if resetHandle:
-                print "Switching device into DFU mode"
-                print 'char-write-cmd 0x%02s %02x' % (resetHandle, 1)
-                self.ble_conn.sendline('char-write-cmd 0x%02s %02x' % (resetHandle, 1))
-                time.sleep(0.2)
-        
-                print "Node is being restarted"
-                self.ble_conn.sendline('exit')
-                time.sleep(0.2)
-                self.ble_conn.kill(0)
-        
-                # wait for restart
-                time.sleep(5)
-                print "Reconnecting..."
-        
-                # reinitialize
-                #self.__init__(self.target_mac, self.hexfile_path, self.interface)
-                self.__init__(self.target_mac, self.hexfile_path, self.datfile_path)
-                #self.__init__(self.target_mac, self.hexfile_path)
-                # reconnect
-                connected = self.scan_and_connect()
-                
-                print "connected " + str(connected)
-        
-                if not connected:
-                    return False
-        
-                return self._dfu_check_mode()
-            else:
-                print "Node is in DFU mode"
-            return True
-        else:
-        
-            return False
 
-    def _dfu_get_handles(self):
-        print "_dfu_get_handles"
-        #s110
-        #self.ctrlpt_cccd_handle = '0e'
-        #self.data_handle = '0b'
-        
-        #s132
-        self.ctrlpt_cccd_handle = '10'
-        self.data_handle = '0e'
-        
-        
-        ctrlpt_cccd_handle = getHandle(self.ble_conn,"00002902-0000-1000-8000-00805f9b34fb")
-        data_handle = getHandle(self.ble_conn,"00001532-1212-efde-1523-785feabcd123")
-        
-        print "ctrlpt_cccd_handle " + str(ctrlpt_cccd_handle)
-        print "data_handle " + str(data_handle)
-        
-        if ctrlpt_cccd_handle:
-            self.ctrlpt_cccd_handle = ctrlpt_cccd_handle
-        if data_handle:
-            self.data_handle = data_handle
-
-    def switch_in_dfu_mode(self):
-		"""
-		Enable CCD to switch in DFU mode
-		"""
-		debug_msg("switch_in_dfu_mode")
-
-		#Enable notifications 
-		#debug_msg(str('char-write-cmd 0x%02s %02x' % (self.ctrlpt_cccd_handle, 1)))  #char-write-req 0x0014 0100
-		#self.ble_conn.sendline('char-write-req 0x%02s %02x' % (self.ctrlpt_cccd_handle, 1))
-
-		if(self._dfu_enable_cccd(False)==False): #Try this
-			return False
-		time.sleep(0.5)
-
-		#TODO handle softdevice and bootloader upgrade
-		#print  "Send 'START DFU' + Application Command"
-		#Reset the board in DFU mode. After reset the board will be disconnected
-		debug_msg(str('char-write-req 0x%02x 0104' % (self.reset_handle))) #char-write-req 0x0013 0104
-		self.ble_conn.sendline('char-write-req 0x%02x 0104' % (self.reset_handle))  #Reset
-		self.ble_conn.sendline('') #BR
-		try:
-			res = self.ble_conn.expect('.* Invalid file descriptor', timeout=10)
-		except pexpect.TIMEOUT, e:
-			print "ERROR: Reset timeout"
-			return False
-
-		debug_msg("END switch_in_dfu_mode")
-		#Reconnect the board.
-		ret = self.scan_and_connect()
-		print "Connected " + str(ret)
-        
-    def switch_in_dfu_mode_alt(self):
-		debug_msg("switch_in_dfu_mode")
-		# scan for characteristics:
-		status = self._dfu_check_mode()
-		print "status " + str(status)
-		if not status:
-			return False
-
-    """
-    --------------------------------------------------------------------------
-     Send the binary firmware image to peripheral device.
-    --------------------------------------------------------------------------
-    """
+    #--------------------------------------------------------------------------
+    # Send the binary firmware image to peripheral device.
+    #--------------------------------------------------------------------------
     def dfu_send_image(self):
-		debug_msg("dfu_send_image")
 
-		if not self._check_DFU_mode():
-			self.switch_in_dfu_mode()
+        if(debug): print("(f)dfu_send_image")
 
-		debug_msg("Enable Notifications in DFU mode")
-		self._dfu_enable_cccd(True)
+        # Enable Notifications
+        self._dfu_enable_cccd()
 
-		#TODO Handle softdevice and bootloader upgrade
-		# Send 'START DFU' + Application Command
-		self._dfu_state_set(0x0104)
+        # set the PRN
+        self._dfu_set_prn(0x0A00)
 
-		# Transmit binary image size
-		hex_size_array_lsb = convert_uint32_to_array(len(self.bin_array))
+        # Transmit the Init image (DAT).
+        self._dfu_send_init()
 
-		#print hex_size_array_lsb
-		self._dfu_data_send_req(hex_size_array_lsb)
-		debug_msg("Sending hex file size")
+        # Send the APP
+        self._dfu_send_app()
 
-		# Send 'INIT DFU' Command
-		self._dfu_state_set(0x0200)
+        # Wait a bit for copy on the peer to be finished
+        time.sleep(1)
 
-		# Wait for INIT DFU notification (indicates flash erase completed)
-		notify = self._dfu_wait_for_notify()
-
-		# Check the notify status.
-		dfu_status = self._dfu_parse_notify(notify)
-		if dfu_status != "OK":
-			raise Exception("bad notification status")
-
-		# Transmit the Init image (DAT).
-		self._dfu_send_init()
-
-		# Send 'INIT DFU' + Complete Command
-		self._dfu_state_set(0x0201)
-
-		# Send packet receipt notification interval (currently 10)
-		self._dfu_pkt_rcpt_notif_req()
-
-		# Send 'RECEIVE FIRMWARE IMAGE' command to set DFU in firmware receive state. 
-		self._dfu_state_set_byte(Commands.RECEIVE_FIRMWARE_IMAGE)
-
-		'''
-		Send bin_array contents as as series of packets (burst mode).
-		Each segment is pkt_payload_size bytes long.
-		For every pkt_receipt_interval sends, wait for notification.
-		'''
-		segment_count = 1
-		for i in range(0, self.hex_size, self.pkt_payload_size):
-
-			segment = self.bin_array[i:i + self.pkt_payload_size]
-			self._dfu_data_send_cmd(segment)
-
-			#print "segment #", segment_count
-
-			if (segment_count % self.pkt_receipt_interval) == 0:
-				notify = self._dfu_wait_for_notify()
-
-				if notify == None:
-					raise Exception("no notification received")
-
-				dfu_status = self._dfu_parse_notify(notify)
-
-				if dfu_status == None or dfu_status != "OK":
-					raise Exception("bad notification status")
-
-			segment_count += 1
-
-		# Send Validate Command
-		self._dfu_state_set_byte(Commands.VALIDATE_FIRMWARE_IMAGE)
-
-		# Wait a bit for copy on the peer to be finished
-		time.sleep(1)
-
-		# Send Activate and Reset Command
-		self._dfu_state_set_byte(Commands.ACTIVATE_FIRMWARE_AND_RESET)
-		
-		"""
-		--------------------------------------------------------------------------
-			Return True if is already in DFU mode
-		--------------------------------------------------------------------------
-		"""
-    def _check_DFU_mode(self):
-		print "Checking DFU State..."
-		res=False
-		self.ble_conn.sendline('char-read-uuid %s' % UUID.DFU_Version)
-		
-		#Skip two rows		
-		try:
-			res = self.ble_conn.expect('handle:', timeout=10)
-			res = self.ble_conn.expect('handle:', timeout=0.1)
-		except pexpect.TIMEOUT, e:
-			#print "[ERROR]_check_DFU_mode: State timeout"
-			pass
-		except:
-			pass
-		
-		msg_ret = self.ble_conn.before
-		msg_ret = self.ble_conn.before
-		debug_msg(msg_ret)
-		
-		if msg_ret.find("value: 08 00")!=-1:		
-			res=True
-			print "Board already in DFU mode"
-		elif msg_ret.find("value: 01 00")!=-1:		
-			print "Board needs to switch in DFU mode"
-		else:
-			print "[ERROR]: Invalid state"
-			sys.exit(1)
-
-		return res
-		
-    """
-    --------------------------------------------------------------------------
-     Disconnect from peer device if not done already and clean up. 
-    --------------------------------------------------------------------------
-    """
+    #--------------------------------------------------------------------------
+    # Disconnect from peer device if not done already and clean up. 
+    #--------------------------------------------------------------------------
     def disconnect(self):
+        if(debug): print('>>exit')
         self.ble_conn.sendline('exit')
-        print "*****OK*****"
         self.ble_conn.close()
-        
-        
-def getHandle(ble_connection, uuid):
-    print "getHandle " + uuid
-    in_characteristic = True
-    ble_connection.before = ""
-    ble_connection.sendline('characteristics')
-    try:
-        ble_connection.expect([uuid], timeout=2)
-        handles = re.findall(r"char value handle: 0x..(..)", ble_connection.before)
-        print handles
-        ble_connection.before = ""
-        ble_connection.buffer = ""
-    except pexpect.TIMEOUT, e:
-        in_characteristic = False
 
-    if not in_characteristic:
-        ble_connection.sendline('char-desc')
-        try:
-            ble_connection.expect([uuid], timeout=2)
-            handles = re.findall(r"0x..(..)", ble_connection.before)
-            print handles
-            ble_connection.before = ""
-            ble_connection.buffer = ""
-        except pexpect.TIMEOUT, e:
-            return False
-
-    if len(handles) > 0:
-        return handles[-1]
-    else:
-        return False
-
+#------------------------------------------------------------------------------
+#
+#------------------------------------------------------------------------------
 def main():
-    """
-    ------------------------------------------------------------------------------
-    
-    ------------------------------------------------------------------------------
-    """
 
-    print "DFU Server start"
+    print("DFU Server start")
+
     try:
-        parser = optparse.OptionParser(usage='%prog -f <hex_file> -a <dfu_target_address>\n\nExample:\n\tdfu.py -f application.hex -d application.dat -a cd:e3:4a:47:1c:e4',
-                                       version='0.5')
+        parser = optparse.OptionParser(usage='%prog -z <zip_file> -a <dfu_target_address>\n\nExample:\n\tdfu.py -z DFU.zip -a cd:e3:4a:47:1c:e4',
+                                       version='0.6')
 
         parser.add_option('-a', '--address',
                   action='store',
@@ -753,22 +587,6 @@ def main():
                   type="string",
                   default=None,
                   help='DFU target address.'
-                  )
-
-        parser.add_option('-f', '--file',
-                  action='store',
-                  dest="hexfile",
-                  type="string",
-                  default=None,
-                  help='hex file to be uploaded.'
-                  )
-
-        parser.add_option('-d', '--dat',
-                  action='store',
-                  dest="datfile",
-                  type="string",
-                  default=None,
-                  help='dat file to be uploaded.'
                   )
 
         parser.add_option('-z', '--zip',
@@ -781,95 +599,70 @@ def main():
 
         options, args = parser.parse_args()
 
-    except Exception, e:
-        print e
-        print "For help use --help"
+    except Exception as e:
+        print(e)
+        print("For help use --help")
         sys.exit(2)
 
-    try:
+    unpacker = None
 
+    try:
         ''' Validate input parameters '''
 
         if not options.address:
             parser.print_help()
             exit(2)
 
-        unpacker = None
-        hexfile  = None
+        binfile  = None
         datfile  = None
 
         if options.zipfile != None:
-
-            if (options.hexfile != None) or (options.datfile != None):
-                print "Conflicting input directives"
-                exit(2)
-
             unpacker = Unpacker()
-            #print options.zipfile
-            try:
-            	hexfile, datfile = unpacker.unpack_zipfile(options.zipfile)	
-            except Exception, e:        
-                print "ERR"
-                print e
-                pass
+
+            binfile, datfile = unpacker.unpack_zipfile(options.zipfile)
 
         else:
-            if (not options.hexfile) or (not options.datfile):
-                parser.print_help()
-                exit(2)
-
-            if not os.path.isfile(options.hexfile):
-                print "Error: Hex file doesn't exist"
-                exit(2)
-
-            if not os.path.isfile(options.datfile):
-                print "Error: DAT file doesn't exist"
-                exit(2)
-
-            hexfile = options.hexfile
-            datfile = options.datfile
+            parser.print_help()
+            exit(2)
 
         ''' Start of Device Firmware Update processing '''
-        ble_dfu = BleDfuServer(options.address.upper(), hexfile, datfile)
+
+        ble_dfu = BleDfuServer(options.address.upper(), binfile, datfile)
 
         # Initialize inputs
         ble_dfu.input_setup()
 
-		#Debug
-        #ble_dfu.__init__(ble_dfu.target_mac, ble_dfu.hexfile_path, ble_dfu.datfile_path)
         # Connect to peer device.
-        if ble_dfu.scan_and_connect():
-            # Transmit the hex image to peer device.
-            ble_dfu.dfu_send_image()
-    
-            # Wait to receive the disconnect event from peripheral device.
-            time.sleep(1)
-    
-            # Disconnect from peer device if not done already and clean up. 
-            ble_dfu.disconnect()
+        ble_dfu.scan_and_connect()
 
-    except Exception, e:
-        print e
+        # Transmit the hex image to peer device.
+        ble_dfu.dfu_send_image()
+
+        # Wait to receive the disconnect event from peripheral device.
+        time.sleep(1)
+
+        # Disconnect from peer device if not done already and clean up. 
+        ble_dfu.disconnect()
+
+    except Exception as e:
+        print(e)
         pass
 
     except:
         pass
 
     # If Unpacker for zipfile used then delete Unpacker
-    #if unpacker != None:
-    #    unpacker.delete()
+    if unpacker != None:
+        unpacker.delete()
 
-    debug_msg("DFU Server done")
+    print("DFU Server done")
 
-"""
-------------------------------------------------------------------------------
-
-------------------------------------------------------------------------------
-"""
+#------------------------------------------------------------------------------
+#
+#------------------------------------------------------------------------------
 if __name__ == '__main__':
 
     # Do not litter the world with broken .pyc files.
     sys.dont_write_bytecode = True
 
     main()
-

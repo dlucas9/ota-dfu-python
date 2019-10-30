@@ -6,6 +6,7 @@ import tempfile
 import random
 import string
 import shutil
+import json
 
 from os.path  import basename
 
@@ -44,29 +45,30 @@ class Unpacker(object):
                                               os.path.splitext(basename(zipfile))[0],
                                               self.entropy(6))
 
-        print("unzip_dir: {0}".format(self.unzip_dir))
+        #print("unzip_dir: {0}".format(self.unzip_dir))
 
         if self.unzip(zipfile, self.unzip_dir) == False:
             raise Exception("unzip failed")
 
         # Check that "application.dat" exist in directory.
 
-        datfile = "{0}/{1}".format(self.unzip_dir, "application.dat")
+        with open("{0}/manifest.json".format(self.unzip_dir), 'r') as f:
+            manifest = json.load(f)
+
+        datfile = "{0}/{1}".format(self.unzip_dir, manifest['manifest']['application']['dat_file'])
         if not os.path.isfile(datfile):
             raise Exception("No DAT file found")
 
-        # Check that "application.[hex|bin]" exists in directory.
+        # Check that "application.[bin]" exists in directory.
 
-        hexfile = "{0}/{1}".format(self.unzip_dir, "application.hex")
-        if not os.path.isfile(hexfile):
-            hexfile = "{0}/{1}".format(self.unzip_dir, "application.bin")
-            if not os.path.isfile(hexfile):
-                raise Exception("No HEX or BIN file found")
+        binfile = "{0}/{1}".format(self.unzip_dir, manifest['manifest']['application']['bin_file'])
+        if not os.path.isfile(binfile):
+            raise Exception("No BIN file found")
 
-        #print("hex: {0}".format(hexfile))
+        #print("bin: {0}".format(binfile))
         #print("dat: {0}".format(datfile))
 
-        return hexfile, datfile
+        return binfile, datfile
 
    #--------------------------------------------------------------------------
    # 
